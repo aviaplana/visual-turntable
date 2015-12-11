@@ -7,12 +7,15 @@
 #define DEBUG 1
 
 // Analog pins
-#define PIN_POD_SPEED A0
-#define PIN_BUTTONS A1
-#define PIN_ENCODER A2 
+#define PIN_BUTTONS A0
+#define PIN_ENCODER A1 
+#define PIN_POD_SPEED A2
+#define PIN_POD_TIME_FADE A3
+#define PIN_POD_TIME_ENCODER A4
 
 // Digital pins
-#define PIN_MOTOR_SPEED 3 
+#define PIN_MOTOR_RIGHT 5 
+#define PIN_MOTOR_LEFT 6 
 
 #define ACTION_IDLE 0
 #define ACTION_FADE_MIN 1
@@ -23,16 +26,20 @@
 Buttons buttons(PIN_BUTTONS);
 
 // Speed value in which the motor stops.
-uint8_t min_speed = 45;
-uint8_t current_speed = 45;
+uint8_t min_speed = 120;
+unsigned int current_speed = min_speed;
 
 uint8_t current_action = ACTION_IDLE;
 
-int action_delay = 100;
 unsigned int tics_enc = 0;
 unsigned int tics_enc_obj = 0;
 unsigned int enc_comparator = 600;
-unsigned int wait_time_enc = 1000;
+
+unsigned int action_delay = 1000;
+unsigned long min_time_enc = 1000;
+unsigned long max_time_enc = 10000;
+unsigned long min_time_fade = 10000;
+unsigned long max_time_fade = 60000;
 
 unsigned long last_button_int;
 unsigned long last_enc;
@@ -41,18 +48,18 @@ unsigned long last_action;
 bool button_pressed = false;
 bool prev_encoder = false;
 bool stop_motor = false;
+bool reached_fade = false;
 
 
 
 void setup() 
 {
-  pinMode(PIN_MOTOR_SPEED, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT, OUTPUT);
   
   if (DEBUG) {
     Serial.begin(9600);
   }
   
-  current_speed = 254;
   last_button_int = millis();
   attachInterrupt(0, buttonPress, RISING);
 }
@@ -60,10 +67,10 @@ void setup()
 void loop() 
 {
   if ((current_action != ACTION_FADE_MIN) && (current_action != ACTION_FADE_MAX)) {
-    //current_speed = map(analogRead(PIN_POD_SPEED), 0, 1024, min_speed, 254);
+    current_speed = map(analogRead(PIN_POD_SPEED), 0, 1024, min_speed, 254);
   }
   
-  if (DEBUG){
+  if (DEBUG) {
     if (button_pressed && buttons.readyToRead()) {
       int button = buttons.checkButtons();
       Serial.println("Button: " + String(button)); 
@@ -76,7 +83,7 @@ void loop()
   performAction();
 
   if (!stop_motor) {
-    analogWrite(PIN_MOTOR_SPEED, current_speed);
+    analogWrite(PIN_MOTOR_LEFT, current_speed);
   }
 }
 
@@ -84,10 +91,14 @@ void assignAction(int button)
 {
   switch (button) {
     case 0:
+      setActionDelay();
+      reached_fade = false;
       current_action = ACTION_FADE_MIN;
       break;
       
     case 1:
+      setActionDelay();
+      reached_fade = false;
       current_action = ACTION_FADE_MAX;
       break;
 
@@ -116,6 +127,16 @@ void assignAction(int button)
   }
 }
 
+void setActionDelay()
+{
+  unsigned long pod_val = map(analogRead(PIN_POD_TIME_FADE), 0, 1024, min_time_fade, max_time_fade);
+  action_delay = (int) (pod_val / ((int) (254 - current_speed) / 5));
+  
+  if (DEBUG) {
+    Serial.println("Total fade time: " + String(pod_val) + " Step delay: " + String(action_delay));
+  }
+}
+
 void performAction()
 {
   switch (current_action) {
@@ -138,18 +159,21 @@ void performAction()
 }
 
 void fadeMin()
-{
-  if ((millis() - last_action) > action_delay) {
+{  
+  if (reached_fade == false && ((millis() - last_action) > action_delay)) {
     current_speed -= 5;
     
     if (current_speed < min_speed) {
       current_speed = min_speed;
     }
     
-    analogWrite(PIN_MOTOR_SPEED, current_speed);
+    analogWrite(PIN_MOTOR_LEFT, current_speed);
     
     if (current_speed <= min_speed) {
-      current_action = ACTION_IDLE;
+      if (DEBUG) {
+        Serial.println("Reached max");
+      }
+      reached_fade = true;
     }
 
     if (DEBUG) {
@@ -161,18 +185,21 @@ void fadeMin()
 }
 
 void fadeMax()
-{
-  if ((millis() - last_action) > action_delay) {
+{  
+  if (reached_fade == false && ((millis() - last_action) > action_delay)) {
     current_speed += 5;
   
     if (current_speed > 254) {
       current_speed = 254;
     }
   
-    analogWrite(PIN_MOTOR_SPEED, current_speed);
+    analogWrite(PIN_MOTOR_LEFT, current_speed);
   
     if (current_speed >= 254) {
-      current_action = ACTION_IDLE;
+      reached_fade = true;
+      if (DEBUG) {
+        Serial.println("Reached max");
+      }
     }
     
     if (DEBUG) {
@@ -193,6 +220,7 @@ void setMoveState(unsigned int tics)
 
 void moveDistance() 
 {
+  unsigned long wait_time_enc = map(analogRead(PIN_POD_TIME_ENCODER), 0, 1024, min_time_enc, max_time_enc);
   bool comp_enc = (analogRead(PIN_ENCODER) < enc_comparator);
   
   if (stop_motor) {
@@ -230,7 +258,7 @@ void stopMotor()
   }
   
   stop_motor = true;
-  analogWrite(PIN_MOTOR_SPEED, 0);
+  analogWrite(PIN_MOTOR_LEFT, 0);
 }
 
 void buttonPress()
