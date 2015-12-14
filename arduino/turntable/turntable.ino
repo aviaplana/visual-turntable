@@ -15,7 +15,14 @@
 
 // Digital pins
 #define PIN_MOTOR_RIGHT 5 
-#define PIN_MOTOR_LEFT 6 
+#define PIN_MOTOR_LEFT 6
+#define PIN_DIR 7
+#define PIN_LED_0 8
+#define PIN_LED_1 9
+#define PIN_LED_2 10
+#define PIN_LED_3 11
+#define PIN_LED_4 12
+#define PIN_LED_5 13
 
 #define ACTION_IDLE 0
 #define ACTION_FADE_MIN 1
@@ -30,6 +37,8 @@ uint8_t min_speed = 120;
 unsigned int current_speed = min_speed;
 
 uint8_t current_action = ACTION_IDLE;
+uint8_t last_button = 10;
+
 
 unsigned int tics_enc = 0;
 unsigned int tics_enc_obj = 0;
@@ -38,7 +47,7 @@ unsigned int enc_comparator = 600;
 unsigned int action_delay = 1000;
 unsigned long min_time_enc = 1000;
 unsigned long max_time_enc = 10000;
-unsigned long min_time_fade = 10000;
+unsigned long min_time_fade = 3000;
 unsigned long max_time_fade = 60000;
 
 unsigned long last_button_int;
@@ -49,12 +58,21 @@ bool button_pressed = false;
 bool prev_encoder = false;
 bool stop_motor = false;
 bool reached_fade = false;
+bool motor_dir = false;
 
 
 
 void setup() 
 {
   pinMode(PIN_MOTOR_LEFT, OUTPUT);
+  pinMode(PIN_MOTOR_RIGHT, OUTPUT);
+  pinMode(PIN_LED_0, OUTPUT);
+  pinMode(PIN_LED_1, OUTPUT);
+  pinMode(PIN_LED_2, OUTPUT);
+  pinMode(PIN_LED_3, OUTPUT);
+  pinMode(PIN_LED_4, OUTPUT);
+  pinMode(PIN_LED_5, OUTPUT);
+  pinMode(PIN_DIR, INPUT_PULLUP);
   
   if (DEBUG) {
     Serial.begin(9600);
@@ -79,52 +97,82 @@ void loop()
     }
   }
  
-  
   performAction();
 
   if (!stop_motor) {
-    analogWrite(PIN_MOTOR_LEFT, current_speed);
+    if ((current_action != ACTION_MOVE_RANDOM) && (motor_dir != digitalRead(PIN_DIR))) {
+      if (motor_dir) {
+        analogWrite(PIN_MOTOR_LEFT, 0);
+      } else {
+        analogWrite(PIN_MOTOR_RIGHT, 0);
+      }
+      motor_dir = digitalRead(PIN_DIR);
+    }
+    
+    if (motor_dir) {
+      analogWrite(PIN_MOTOR_LEFT, current_speed);
+    } else {
+      analogWrite(PIN_MOTOR_RIGHT, current_speed);
+    }
   }
 }
 
 void assignAction(int button)
 {
-  switch (button) {
-    case 0:
-      setActionDelay();
-      reached_fade = false;
-      current_action = ACTION_FADE_MIN;
-      break;
-      
-    case 1:
-      setActionDelay();
-      reached_fade = false;
-      current_action = ACTION_FADE_MAX;
-      break;
-
-    // 1/8
-    case 2:
-      setMoveState(2);
-      break;
-
-    // 1/4
-    case 3:
-      setMoveState(4);
-      break;
-
-    // 1
-    case 4:
-      setMoveState(16);
-      break;
-      
-    case 5:
-      setMoveState(random(1, 16));
-      current_action = ACTION_MOVE_RANDOM;
-      break;
-
-    default:
-      break;
+  offAllLeds();
+  
+  if (button != -1 && button == last_button) {
+    current_action = ACTION_IDLE;
+    last_button = -1;
+  } else {
+    switch (button) {
+      case 0:
+        digitalWrite(PIN_LED_0, HIGH);
+        setActionDelay();
+        reached_fade = false;
+        current_action = ACTION_FADE_MIN;
+        break;
+        
+      case 1:
+        digitalWrite(PIN_LED_1, HIGH);
+        setActionDelay();
+        reached_fade = false;
+        current_action = ACTION_FADE_MAX;
+        break;
+  
+      // 1/8
+      case 2:
+        digitalWrite(PIN_LED_2, HIGH);
+        setMoveState(2);
+        break;
+  
+      // 1/4
+      case 3:
+        digitalWrite(PIN_LED_3, HIGH);
+        setMoveState(4);
+        break;
+  
+      // 1
+      case 4:
+        digitalWrite(PIN_LED_4, HIGH);
+        setMoveState(16);
+        break;
+        
+      case 5:
+        digitalWrite(PIN_LED_5, HIGH);
+        setMoveState(random(1, 16));
+        current_action = ACTION_MOVE_RANDOM;
+        break;
+  
+      default:
+        break;
+    }
+    
+    if (button != -1) {
+      last_button = button;
+    }
   }
+  
 }
 
 void setActionDelay()
@@ -141,6 +189,9 @@ void performAction()
 {
   switch (current_action) {
     case ACTION_IDLE:
+      if (stop_motor) {
+        stop_motor = false;
+      }
       break;
       
     case ACTION_FADE_MIN:
@@ -161,19 +212,19 @@ void performAction()
 void fadeMin()
 {  
   if (reached_fade == false && ((millis() - last_action) > action_delay)) {
-    current_speed -= 5;
-    
-    if (current_speed < min_speed) {
-      current_speed = min_speed;
-    }
-    
-    analogWrite(PIN_MOTOR_LEFT, current_speed);
     
     if (current_speed <= min_speed) {
+      
       if (DEBUG) {
         Serial.println("Reached max");
       }
       reached_fade = true;
+    } else {
+      current_speed -= 5;
+      
+      if (current_speed < min_speed) {
+        current_speed = min_speed;
+      }
     }
 
     if (DEBUG) {
@@ -187,18 +238,17 @@ void fadeMin()
 void fadeMax()
 {  
   if (reached_fade == false && ((millis() - last_action) > action_delay)) {
-    current_speed += 5;
-  
-    if (current_speed > 254) {
-      current_speed = 254;
-    }
-  
-    analogWrite(PIN_MOTOR_LEFT, current_speed);
-  
+      
     if (current_speed >= 254) {
       reached_fade = true;
       if (DEBUG) {
         Serial.println("Reached max");
+      }
+    } else {
+      current_speed += 5;
+    
+      if (current_speed > 254) {
+        current_speed = 254;
       }
     }
     
@@ -229,6 +279,7 @@ void moveDistance()
 
       if (current_action == ACTION_MOVE_RANDOM) {
         tics_enc_obj = random(1, 16);
+        motor_dir = random(0, 2);
       }
       
       if (DEBUG) {
@@ -259,6 +310,17 @@ void stopMotor()
   
   stop_motor = true;
   analogWrite(PIN_MOTOR_LEFT, 0);
+  analogWrite(PIN_MOTOR_RIGHT, 0);
+}
+
+void offAllLeds()
+{
+   digitalWrite(PIN_LED_0, LOW);
+   digitalWrite(PIN_LED_1, LOW);
+   digitalWrite(PIN_LED_2, LOW);
+   digitalWrite(PIN_LED_3, LOW);
+   digitalWrite(PIN_LED_4, LOW);
+   digitalWrite(PIN_LED_5, LOW);
 }
 
 void buttonPress()
