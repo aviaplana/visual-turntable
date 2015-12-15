@@ -1,4 +1,4 @@
-## Turntable controller
+## Display turntable controller
 Automated display turntable, using a turntable and controlled by an Arduino. Such platform has 7 modes:
     - Idle, in which the motor will spin in the specified speed and direction
     - Fade from current speed to maximum speed
